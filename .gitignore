@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Données générées à l'exécution
+data/orphans.json
+data/test_backup/
+data/test_backup2/
+logs/
+
+# Fichiers temporaires de copie atomique
+*.smd_tmp
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# Build / packaging
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db

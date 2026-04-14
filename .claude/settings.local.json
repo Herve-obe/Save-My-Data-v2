@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:\\\\Users\\\\herve\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe\" -X utf8 -m py_compile src/main.py src/ui/pages/disks_page.py src/ui/pages/settings_page.py)",
+      "Bash(\"C:\\\\Users\\\\herve\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\python.exe\" -X utf8 -m py_compile src/ui/pages/disks_page.py)",
+      "Bash(python -c \"from apscheduler.schedulers.background import BackgroundScheduler; print\\('APScheduler OK'\\)\")",
+      "Bash(python -c \"from core.scheduler_manager import SchedulerManager; print\\('SchedulerManager OK'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(python -X utf8 -c ':*)",
+      "Bash(pip show:*)",
+      "Bash(python -m pip show pyinstaller)",
+      "Bash(python -m pip show PySide6)",
+      "Bash(python -m pip install pyinstaller)",
+      "Bash(python -X utf8 -m PyInstaller save_my_data.spec --clean --noconfirm)",
+      "Bash(\"D:\\\\ELEMENT\\\\PROJET CODE\\\\SAVE MY DATA\\\\dist\\\\SaveMyData\\\\SaveMyData.exe\")",
+      "Bash(tasklist)",
+      "Bash(taskkill /IM SaveMyData.exe /F)",
+      "Read(//d/ELEMENT/PROJET CODE/SAVE MY DATA/%APPDATA%/SaveMyData/config\" 2>/dev/**)",
+      "Bash(cmd /c \"taskkill /F /IM SaveMyData.exe\")",
+      "Bash(cmd /c \"dir %APPDATA%\\\\SaveMyData\\\\config\\\\\" 2>&1)",
+      "Bash(python -X utf8 -c \"import subprocess; r=subprocess.run\\(['taskkill','/F','/IM','SaveMyData.exe'], capture_output=True, text=True\\); print\\(r.stdout\\); print\\(r.stderr\\)\")"
+    ]
+  }
+}
