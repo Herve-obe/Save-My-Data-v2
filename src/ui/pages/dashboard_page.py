@@ -2,7 +2,6 @@
 dashboard_page.py — Page d'accueil : statut, disques configurés, sauvegarde.
 """
 
-import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -16,6 +15,7 @@ from PySide6.QtGui import QFont
 import config
 from core.orphan_manager import OrphanManager
 from core.backup_worker import write_last_backup
+from ui.utils import load_last_backup
 
 
 class DashboardPage(QWidget):
@@ -279,13 +279,7 @@ class DashboardPage(QWidget):
             self._disk_list_layout.addWidget(row)
 
     def _load_last_backup(self) -> dict | None:
-        p = self._data_dir / "last_backup.json"
-        if p.exists():
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        return None
+        return load_last_backup(self._data_dir)
 
     # ── Actions ───────────────────────────────────────────────────────────────
 

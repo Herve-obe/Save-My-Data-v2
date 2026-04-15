@@ -104,10 +104,10 @@ def is_registered() -> bool:
     import winreg
 
     try:
-        winreg.OpenKey(
+        with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             rf"{HKCU_CLASSES}\*\shell\{VERB_NAME}",
-        )
-        return True
+        ):
+            return True
     except FileNotFoundError:
         return False

@@ -1,0 +1,6 @@
+# Dépendances de développement uniquement (non incluses dans le bundle de production)
+# Installation : pip install -r requirements-dev.txt
+
+pyinstaller>=6.0.0    # Packaging → génère SaveMyData.exe
+pytest>=8.0.0         # Tests unitaires
+pytest-qt>=4.4.0      # Tests des composants PySide6 (optionnel)

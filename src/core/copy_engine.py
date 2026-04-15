@@ -23,6 +23,7 @@ class CopyReport:
     finished_at: datetime | None = None
 
     files_copied: list[Path] = field(default_factory=list)
+    bytes_copied: int = 0          # Accumulé pendant la copie (OPTIM-02 : pas de re-stat)
     files_unchanged: int = 0
     orphan_paths: list[Path] = field(default_factory=list)
     errors: list[tuple[Path, str]] = field(default_factory=list)
@@ -33,16 +34,6 @@ class CopyReport:
         if self.finished_at:
             return (self.finished_at - self.started_at).total_seconds()
         return 0.0
-
-    @property
-    def bytes_copied(self) -> int:
-        total = 0
-        for path in self.files_copied:
-            try:
-                total += path.stat().st_size
-            except OSError:
-                pass
-        return total
 
     def summary(self) -> str:
         mb = self.bytes_copied / (1024 * 1024)
@@ -72,6 +63,20 @@ def _atomic_copy(src: Path, dst: Path) -> None:
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def _find_existing_ancestor(path: Path) -> Path:
+    """
+    Remonte l'arborescence jusqu'au premier ancêtre existant.
+    Utilisé pour vérifier l'espace disque d'un dossier pas encore créé.
+    """
+    current = path
+    while not current.exists():
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return current
 
 
 def run_backup(
@@ -115,7 +120,26 @@ def run_backup(
 
     total = len(to_copy)
 
-    # ── Phase 2 : Copie ───────────────────────────────────────────────────────
+    # ── Phase 2 : Vérification de l'espace disque disponible (MANQUANT-03) ──
+    if to_copy:
+        total_needed = sum(r.source_entry.size for r in to_copy)
+        try:
+            check_path = _find_existing_ancestor(target_root)
+            free_bytes = shutil.disk_usage(str(check_path)).free
+            # Alerte si l'espace libre est insuffisant (marge de sécurité 100 Mo)
+            if free_bytes < total_needed + 100 * 1024 * 1024:
+                report.errors.append((
+                    target_root,
+                    f"Espace insuffisant sur le disque cible : "
+                    f"{total_needed / 1024**3:.2f} Go requis, "
+                    f"{free_bytes / 1024**3:.2f} Go disponibles.",
+                ))
+                report.finished_at = datetime.now()
+                return report
+        except OSError:
+            pass  # Impossible de vérifier — on continue
+
+    # ── Phase 3 : Copie ───────────────────────────────────────────────────────
     for i, result in enumerate(to_copy):
         if cancel_check and cancel_check():
             report.cancelled = True
@@ -128,6 +152,8 @@ def run_backup(
         try:
             _atomic_copy(result.source_entry.path, result.target_path)
             report.files_copied.append(result.target_path)
+            # OPTIM-02 : accumulation pendant la copie (pas de re-stat)
+            report.bytes_copied += result.source_entry.size
         except PermissionError as e:
             report.errors.append((result.source_entry.path, f"Permission refusée : {e}"))
         except OSError as e:

@@ -462,9 +462,13 @@ def cmd_backup(args: argparse.Namespace) -> None:
         short = filename[-55:] if len(filename) > 55 else filename
         print(f"\r  [{bar}] {pct:3d}%  {short:<55}", end="", flush=True)
 
+    cfg_filters = config.load().get("filters", {})
     report = run_backup(
         source_root=source,
         target_root=target,
+        excluded_extensions=cfg_filters.get("excluded_extensions", []),
+        excluded_folders=cfg_filters.get("excluded_folders", []),
+        max_size_bytes=cfg_filters.get("max_size_bytes", 0),
         progress_callback=progress,
     )
 

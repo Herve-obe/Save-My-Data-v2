@@ -20,10 +20,13 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QFrame, QFileDialog,
     QMessageBox, QProgressBar,
 )
-from PySide6.QtCore import Qt, Signal, Slot, QThread
+from PySide6.QtCore import Qt, Signal, Slot, QThread, QTimer
 from PySide6.QtGui import QFont
 
 from core.restore_engine import RestoreCandidate, restore, RestoreResult
+
+# BUG-02 : _fmt_size centralisé dans ui.utils (plus de duplication)
+from ui.utils import fmt_size as _fmt_size
 
 
 # ── Thread de restauration ────────────────────────────────────────────────────
@@ -43,14 +46,7 @@ class RestoreWorker(QThread):
         self.finished.emit(result)
 
 
-# ── Utilitaire ────────────────────────────────────────────────────────────────
-
-def _fmt_size(size: int) -> str:
-    if size < 1024:        return f"{size} o"
-    if size < 1024 ** 2:   return f"{size / 1024:.1f} Ko"
-    if size < 1024 ** 3:   return f"{size / 1024 ** 2:.1f} Mo"
-    return f"{size / 1024 ** 3:.2f} Go"
-
+# ── Utilitaire local ──────────────────────────────────────────────────────────
 
 def _fmt_date(dt: datetime) -> str:
     return dt.strftime("%d/%m/%Y à %H:%M")
@@ -101,6 +97,8 @@ class RestoreDialog(QDialog):
     """
     Fenêtre de confirmation avant restauration.
 
+    Lit la config restore.default_destination pour pré-remplir la destination.
+
     Usage :
         candidate = find_backup(path, source_disks, target_disk)
         dialog = RestoreDialog(candidate)
@@ -118,7 +116,22 @@ class RestoreDialog(QDialog):
             Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setMinimumWidth(500)
+
+        # Appliquer la destination depuis les paramètres (MANQUANT-07)
+        self._apply_default_destination()
         self._build_ui()
+
+    def _apply_default_destination(self) -> None:
+        """Configure la destination par défaut selon les paramètres utilisateur."""
+        import config as cfg_module
+        mode = cfg_module.get("restore.default_destination", "original")
+        if mode == "fixed":
+            fixed = cfg_module.get("restore.fixed_folder", "")
+            if fixed:
+                self._destination = Path(fixed)
+        elif mode == "ask":
+            # Ouvrir le sélecteur dès que la fenêtre est visible
+            QTimer.singleShot(100, self._pick_destination)
 
     # ── Construction ──────────────────────────────────────────────────────────
 
@@ -198,9 +211,12 @@ class RestoreDialog(QDialog):
         lbl.setStyleSheet("font-weight: bold;")
         row.addWidget(lbl)
 
-        self._dest_label = QLabel(
-            f"Emplacement d'origine  ({self._candidate.source_path.parent})"
-        )
+        if self._destination:
+            dest_text = str(self._destination)
+        else:
+            dest_text = f"Emplacement d'origine  ({self._candidate.source_path.parent})"
+
+        self._dest_label = QLabel(dest_text)
         self._dest_label.setWordWrap(True)
         row.addWidget(self._dest_label, stretch=1)
 
@@ -233,10 +249,10 @@ class RestoreDialog(QDialog):
     # ── Slots ─────────────────────────────────────────────────────────────────
 
     def _pick_destination(self) -> None:
+        start = str(self._destination.parent if self._destination
+                    else self._candidate.source_path.parent)
         folder = QFileDialog.getExistingDirectory(
-            self,
-            "Choisir le dossier de destination",
-            str(self._candidate.source_path.parent),
+            self, "Choisir le dossier de destination", start,
         )
         if folder:
             self._destination = Path(folder)

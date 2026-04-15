@@ -149,10 +149,19 @@ class SchedulerManager:
 
         worker = BackupWorker(sources, target, filters, self._data_dir)
         worker.finished.connect(self._on_backup_done)
+        worker.error.connect(self._on_backup_error)
         worker.start()
 
         # Garder une référence pour éviter le garbage collection
         self._worker = worker
+
+    def _on_backup_error(self, message: str) -> None:
+        """Appelé si le BackupWorker émet une erreur critique (ex. disque inaccessible)."""
+        self._notify(
+            f"Erreur lors de la sauvegarde planifiée :\n{message}",
+            QSystemTrayIcon.MessageIcon.Warning,
+            8000,
+        )
 
     def _on_backup_done(self, report) -> None:
         """Appelé dans le thread Qt principal quand la sauvegarde planifiée est finie."""

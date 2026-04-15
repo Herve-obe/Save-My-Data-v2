@@ -14,10 +14,10 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QCheckBox, QButtonGroup, QRadioButton, QScrollArea,
-    QMessageBox, QGroupBox, QSizePolicy,
+    QMessageBox, QGroupBox, QSizePolicy, QApplication,
 )
 from PySide6.QtCore import Qt, QRect
-from PySide6.QtGui import QFont, QPainter, QColor
+from PySide6.QtGui import QFont, QPainter, QColor, QPalette
 
 import config
 
@@ -46,9 +46,16 @@ class DiskProgressBar(QWidget):
         r      = self.rect()
         radius = 4
 
-        # 1. Fond de la barre
+        # 1. Fond de la barre — adaptatif au thème (BUG-05)
+        app = QApplication.instance()
+        if app is not None:
+            window_color = app.palette().color(QPalette.ColorRole.Window)
+            is_dark = window_color.lightness() < 128
+        else:
+            is_dark = True
+        bg_color = QColor(55, 55, 55) if is_dark else QColor(200, 200, 208)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(55, 55, 55))
+        painter.setBrush(bg_color)
         painter.drawRoundedRect(r, radius, radius)
 
         # 2. Remplissage proportionnel au %

@@ -10,6 +10,7 @@ Utilisez config.load() pour obtenir le dict complet,
 ou config.get('backup.mode') pour un accès par clé pointée.
 """
 
+import copy
 import json
 import os
 import sys
@@ -48,7 +49,13 @@ def app_base_dir() -> Path:
 
 
 def load() -> dict:
-    """Retourne la configuration complète (depuis le cache ou le fichier)."""
+    """
+    Retourne la configuration complète (depuis le cache ou le fichier).
+
+    Retourne une copie profonde du cache interne afin d'éviter que
+    des mutations externes corrompent silencieusement l'état en mémoire.
+    Utiliser set_value() ou save() pour toute modification persistée.
+    """
     global _cache
     _ensure_config_exists()
     if _cache is None:
@@ -56,7 +63,7 @@ def load() -> dict:
             _cache = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             _cache = _defaults()
-    return _cache
+    return copy.deepcopy(_cache)
 
 
 def reload() -> dict:
@@ -167,7 +174,8 @@ def _defaults() -> dict:
             "max_size_bytes": 0,
         },
         "restore": {
-            "default_destination": "original",
+            "default_destination": "original",  # 'original' | 'fixed' | 'ask'
+            "fixed_folder": "",                  # Dossier fixe de restauration (si mode 'fixed')
             "context_menu": True,
         },
         "ui": {

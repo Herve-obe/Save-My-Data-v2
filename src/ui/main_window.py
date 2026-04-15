@@ -23,6 +23,14 @@ from ui.pages.restore_page import RestorePage
 from ui.pages.history_page import HistoryPage
 
 
+# ── Version ───────────────────────────────────────────────────────────────────
+
+def _get_version() -> str:
+    """Lit la version de l'application depuis la configuration."""
+    import config as _cfg
+    return _cfg.get("version", "1.0")
+
+
 # ── Détection du thème système ────────────────────────────────────────────────
 
 def _detect_system_theme() -> str:
@@ -268,7 +276,7 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        ver = QLabel("v0.9.0")
+        ver = QLabel(f"v{_get_version()}")
         ver.setObjectName("sidebarVersion")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver.setFixedHeight(36)

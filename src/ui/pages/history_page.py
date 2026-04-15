@@ -1,18 +1,22 @@
 """
 history_page.py — Page d'historique des sauvegardes.
 
-M5 : affiche la dernière sauvegarde depuis data/last_backup.json.
-M6+ : historique complet avec journal d'événements.
+Affiche l'historique complet depuis data/backup_history.jsonl
+(une entrée JSON par ligne, les plus récentes en tête).
 """
 
 import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QFrame, QGridLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QScrollArea, QPushButton, QMessageBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
+
+from ui.utils import fmt_size, fmt_duration
 
 
 class HistoryPage(QWidget):
@@ -30,86 +34,144 @@ class HistoryPage(QWidget):
         layout.setContentsMargins(36, 36, 36, 36)
         layout.setSpacing(16)
 
-        # Titre
-        title = QLabel("Historique")
+        # En-tête
+        header_row = QHBoxLayout()
+        title = QLabel("Historique des sauvegardes")
         f = QFont()
         f.setPointSize(15)
         f.setBold(True)
         title.setFont(f)
-        layout.addWidget(title)
+        header_row.addWidget(title)
+        header_row.addStretch()
+
+        btn_refresh = QPushButton("Actualiser")
+        btn_refresh.clicked.connect(self.refresh)
+        header_row.addWidget(btn_refresh)
+        layout.addLayout(header_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(sep)
 
-        # Carte dernière sauvegarde
-        self._card = QFrame()
-        self._card.setFrameShape(QFrame.Shape.StyledPanel)
-        card_layout = QVBoxLayout(self._card)
-        card_layout.setContentsMargins(20, 16, 20, 16)
-        card_layout.setSpacing(10)
+        # Tableau d'historique
+        self._table = QTableWidget(0, 6)
+        self._table.setHorizontalHeaderLabels([
+            "Date", "Copiés", "Inchangés", "Erreurs", "Durée", "Disques sources",
+        ])
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setShowGrid(False)
+        self._table.setSortingEnabled(False)
 
-        lbl_title = QLabel("Dernière sauvegarde")
-        lbl_f = QFont()
-        lbl_f.setBold(True)
-        lbl_f.setPointSize(11)
-        lbl_title.setFont(lbl_f)
-        card_layout.addWidget(lbl_title)
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
 
-        self._grid_layout = QGridLayout()
-        self._grid_layout.setSpacing(6)
-        card_layout.addLayout(self._grid_layout)
+        layout.addWidget(self._table, stretch=1)
 
-        layout.addWidget(self._card)
-
-        # Note M6
-        note = QLabel(
-            "L'historique complet avec le journal détaillé de chaque "
-            "sauvegarde sera disponible dans une prochaine version."
+        # Label "aucun historique"
+        self._empty_label = QLabel(
+            "Aucun historique de sauvegarde disponible.\n"
+            "Lancez votre première sauvegarde pour commencer."
         )
-        note.setWordWrap(True)
-        layout.addWidget(note)
-
-        layout.addStretch()
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setVisible(False)
+        layout.addWidget(self._empty_label)
 
         self.refresh()
 
     # ── Refresh ───────────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
-        # Vider la grille
-        while self._grid_layout.count():
-            child = self._grid_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        entries = self._load_history()
 
-        last = self._load_last_backup()
+        self._table.setRowCount(0)
 
-        if last is None:
-            self._card.setVisible(False)
+        if not entries:
+            self._table.setVisible(False)
+            self._empty_label.setVisible(True)
             return
 
-        self._card.setVisible(True)
+        self._table.setVisible(True)
+        self._empty_label.setVisible(False)
 
-        rows = [
-            ("Date",            last.get("date", "—")),
-            ("Fichiers copiés", str(last.get("files_copied", 0))),
-            ("Erreurs",         str(last.get("errors", 0))),
-        ]
+        # Les entrées les plus récentes en premier
+        for entry in reversed(entries):
+            self._add_row(entry)
 
-        for i, (label, value) in enumerate(rows):
-            lbl = QLabel(f"{label} :")
-            lbl.setStyleSheet("font-weight: bold;")
-            val = QLabel(value)
-            self._grid_layout.addWidget(lbl, i, 0)
-            self._grid_layout.addWidget(val, i, 1)
+    def _add_row(self, entry: dict) -> None:
+        row = self._table.rowCount()
+        self._table.insertRow(row)
 
-        self._grid_layout.setColumnStretch(1, 1)
+        # Date
+        self._table.setItem(row, 0, QTableWidgetItem(entry.get("date", "—")))
+
+        # Fichiers copiés
+        copied = entry.get("files_copied", 0)
+        item_copied = QTableWidgetItem(str(copied))
+        item_copied.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._table.setItem(row, 1, item_copied)
+
+        # Fichiers inchangés
+        unchanged = entry.get("files_unchanged", 0)
+        item_unch = QTableWidgetItem(str(unchanged))
+        item_unch.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._table.setItem(row, 2, item_unch)
+
+        # Erreurs — colorées en rouge si non nulles
+        errors = entry.get("errors", 0)
+        item_err = QTableWidgetItem(str(errors) if errors else "—")
+        item_err.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if errors:
+            item_err.setForeground(Qt.GlobalColor.red)
+        self._table.setItem(row, 3, item_err)
+
+        # Durée
+        duration_s = entry.get("duration_s", 0.0)
+        self._table.setItem(row, 4, QTableWidgetItem(fmt_duration(duration_s)))
+
+        # Disques sources
+        sources = entry.get("sources", [])
+        src_text = ", ".join(sources) if sources else "—"
+        item_src = QTableWidgetItem(src_text)
+        item_src.setToolTip(src_text)
+        self._table.setItem(row, 5, item_src)
 
     # ── Chargement ────────────────────────────────────────────────────────────
 
-    def _load_last_backup(self) -> dict | None:
+    def _load_history(self) -> list[dict]:
+        """
+        Lit backup_history.jsonl (format JSON Lines).
+        Retourne la liste des entrées (oldest first).
+        """
+        path = self._data_dir / "backup_history.jsonl"
+        if not path.exists():
+            # Compatibilité ascendante : si seul last_backup.json existe
+            last = self._load_last_backup_json()
+            return [last] if last else []
+
+        entries = []
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        except Exception:
+            pass
+        return entries
+
+    def _load_last_backup_json(self) -> dict | None:
+        """Fallback : lit last_backup.json si backup_history.jsonl n'existe pas encore."""
         p = self._data_dir / "last_backup.json"
         if p.exists():
             try:

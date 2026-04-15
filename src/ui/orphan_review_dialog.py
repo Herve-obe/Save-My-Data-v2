@@ -24,6 +24,9 @@ from PySide6.QtGui import QFont
 
 from core.orphan_manager import OrphanManager, OrphanEntry
 
+# BUG-02 : _fmt_size centralisé dans ui.utils (plus de duplication)
+from ui.utils import fmt_size as _fmt_size
+
 
 # ── Constantes d'action ───────────────────────────────────────────────────────
 
@@ -32,20 +35,6 @@ ACTION_DELETE  = "Supprimer de la sauvegarde"
 ACTION_RESTORE = "Restaurer sur la source"
 
 ACTIONS = [ACTION_KEEP, ACTION_DELETE, ACTION_RESTORE]
-
-
-# ── Utilitaire ────────────────────────────────────────────────────────────────
-
-def _fmt_size(size_bytes: int) -> str:
-    """Formate une taille en octets en chaîne lisible."""
-    if size_bytes < 1024:
-        return f"{size_bytes} o"
-    elif size_bytes < 1024 ** 2:
-        return f"{size_bytes / 1024:.1f} Ko"
-    elif size_bytes < 1024 ** 3:
-        return f"{size_bytes / 1024 ** 2:.1f} Mo"
-    else:
-        return f"{size_bytes / 1024 ** 3:.2f} Go"
 
 
 # ── Dialogue principal ────────────────────────────────────────────────────────
@@ -171,7 +160,7 @@ class OrphanReviewDialog(QDialog):
         # Date de détection (format court)
         self._table.setItem(i, 2, QTableWidgetItem(entry.detected_at[:10]))
 
-        # Taille
+        # Taille — BUG-02 : utilise fmt_size centralisé
         item_size = QTableWidgetItem(_fmt_size(entry.size))
         item_size.setTextAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -244,13 +233,26 @@ class OrphanReviewDialog(QDialog):
     def _restore_file(self, entry: OrphanEntry) -> tuple[bool, str]:
         """
         Copie le fichier depuis la sauvegarde vers son emplacement d'origine.
-        Crée les dossiers intermédiaires si nécessaire.
+
+        BUG-03 FIX : Le fichier de destination est d'abord envoyé à la Corbeille
+        (si il existe), permettant un undo. Utilise la même approche que
+        restore_engine.restore() pour garantir la cohérence.
         """
         src = Path(entry.target_path)   # Dans la sauvegarde
         dst = Path(entry.source_path)   # Destination d'origine
 
         if not src.exists():
             return False, "Fichier introuvable dans la sauvegarde."
+
+        # Envoi à la Corbeille si un fichier existe déjà à la destination (BUG-03)
+        if dst.exists():
+            try:
+                import send2trash
+                send2trash.send2trash(str(dst))
+            except ImportError:
+                pass  # send2trash non disponible — on continue sans Corbeille
+            except Exception as exc:
+                return False, f"Impossible d'envoyer à la Corbeille : {exc}"
 
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
