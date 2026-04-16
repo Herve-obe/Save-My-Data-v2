@@ -44,8 +44,8 @@ def launch_gui(autostart: bool = False) -> None:
     autostart=True  (démarrage Windows) → démarre silencieusement dans le systray.
     """
     from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-    from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction
-    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtGui import QAction
+    from PySide6.QtCore import QTimer
 
     app = QApplication(sys.argv)
     app.setApplicationName("Save My Data")
@@ -182,9 +182,6 @@ def _handle_shutdown(session_manager, app, data_dir: Path) -> None:
     Intercepte l'événement d'extinction de l'OS.
     Appelé par Qt via le signal commitDataRequest.
     """
-    from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication
-
     cfg = config.load()
     mode = cfg.get('backup', {}).get('mode', 'shutdown')
 
@@ -217,7 +214,6 @@ def _show_disk_missing(
     sources: list[Path], cfg: dict,
 ) -> None:
     """Affiche l'alerte 'Disque introuvable' et gère le choix utilisateur."""
-    from PySide6.QtCore import QTimer
     from ui.disk_missing_dialog import DiskMissingDialog
 
     while True:
@@ -330,7 +326,25 @@ def _run_manual_backup(tray, data_dir: Path) -> None:
             QSystemTrayIcon.MessageIcon.Information, 5000,
         )
 
+    def on_error(msg: str) -> None:
+        tray.showMessage(
+            "Save My Data",
+            f"Erreur lors de la sauvegarde :\n{msg}",
+            QSystemTrayIcon.MessageIcon.Warning,
+            5000,
+        )
+
+    def on_low_disk(disk: str, pct_free: int) -> None:
+        tray.showMessage(
+            "Save My Data",
+            f"Espace disque faible sur la cible ({pct_free}% libre) :\n{disk}",
+            QSystemTrayIcon.MessageIcon.Warning,
+            6000,
+        )
+
     worker.finished.connect(on_done)
+    worker.error.connect(on_error)
+    worker.low_disk_warning.connect(on_low_disk)
     worker.start()
 
 
@@ -568,7 +582,6 @@ def launch_restore_mode(paths: list[str]) -> None:
     source_disks = [Path(s) for s in source_strs]
     target_disk  = Path(target_str)
 
-    shown = False
     for path_str in paths:
         source_path = Path(path_str)
         candidate   = find_backup(source_path, source_disks, target_disk)
@@ -577,7 +590,6 @@ def launch_restore_mode(paths: list[str]) -> None:
             NotFoundDialog(source_path).exec()
         else:
             RestoreDialog(candidate).exec()
-            shown = True
 
     sys.exit(0)
 

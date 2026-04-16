@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
-from ui.utils import fmt_size, fmt_duration
+from ui.utils import fmt_duration, load_last_backup
 
 
 class HistoryPage(QWidget):
@@ -154,7 +154,7 @@ class HistoryPage(QWidget):
         path = self._data_dir / "backup_history.jsonl"
         if not path.exists():
             # Compatibilité ascendante : si seul last_backup.json existe
-            last = self._load_last_backup_json()
+            last = load_last_backup(self._data_dir)
             return [last] if last else []
 
         entries = []
@@ -170,12 +170,3 @@ class HistoryPage(QWidget):
             pass
         return entries
 
-    def _load_last_backup_json(self) -> dict | None:
-        """Fallback : lit last_backup.json si backup_history.jsonl n'existe pas encore."""
-        p = self._data_dir / "last_backup.json"
-        if p.exists():
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        return None

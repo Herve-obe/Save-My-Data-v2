@@ -150,6 +150,7 @@ class SchedulerManager:
         worker = BackupWorker(sources, target, filters, self._data_dir)
         worker.finished.connect(self._on_backup_done)
         worker.error.connect(self._on_backup_error)
+        worker.low_disk_warning.connect(self._on_low_disk_warning)
         worker.start()
 
         # Garder une référence pour éviter le garbage collection
@@ -161,6 +162,14 @@ class SchedulerManager:
             f"Erreur lors de la sauvegarde planifiée :\n{message}",
             QSystemTrayIcon.MessageIcon.Warning,
             8000,
+        )
+
+    def _on_low_disk_warning(self, disk: str, pct_free: int) -> None:
+        """Notifie si l'espace disque cible est faible (< 10 %)."""
+        self._notify(
+            f"Espace disque faible sur la cible ({pct_free}% libre) :\n{disk}",
+            QSystemTrayIcon.MessageIcon.Warning,
+            6000,
         )
 
     def _on_backup_done(self, report) -> None:

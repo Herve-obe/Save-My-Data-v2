@@ -312,7 +312,14 @@ class DashboardPage(QWidget):
         self._worker.error.connect(
             lambda msg: self._progress_label.setText(f"Erreur : {msg}")
         )
+        self._worker.low_disk_warning.connect(self._on_low_disk_warning)
         self._worker.start()
+
+    def _on_low_disk_warning(self, disk: str, pct_free: int) -> None:
+        QMessageBox.warning(
+            self, "Espace disque faible",
+            f"Le disque cible est presque plein ({pct_free}% libre) :\n{disk}"
+        )
 
     def _on_progress(self, done: int, total: int, filename: str) -> None:
         if total > 0:
