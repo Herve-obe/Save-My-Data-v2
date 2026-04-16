@@ -28,7 +28,7 @@ from ui.pages.history_page import HistoryPage
 def _get_version() -> str:
     """Lit la version de l'application depuis la configuration."""
     import config as _cfg
-    return _cfg.get("version", "1.0")
+    return _cfg.get("version", "1.0.0")
 
 
 # ── Détection du thème système ────────────────────────────────────────────────
