@@ -260,9 +260,8 @@ def _start_shutdown_backup(
     # Connexions signaux → slots
     worker.disk_started.connect(dialog.on_disk_started)
     worker.progress.connect(dialog.on_progress)
-    worker.error.connect(
-        lambda msg: dialog._disk_label.setText(f"Erreur : {msg}")
-    )
+    worker.error.connect(dialog.on_error)
+    worker.low_disk_warning.connect(dialog.on_low_disk)
 
     def on_backup_done(report) -> None:
         if worker in _active_workers:

@@ -459,9 +459,16 @@ class SettingsPage(QWidget):
         config.set_value("filters.max_size_bytes", max_bytes)
         config.set_value("theme", theme)
 
-        self._apply_autostart(autostart)
+        autostart_ok, autostart_err = self._apply_autostart(autostart)
 
         QMessageBox.information(self, "Save My Data", "Paramètres enregistrés.")
+
+        if not autostart_ok:
+            QMessageBox.warning(
+                self, "Save My Data",
+                f"Paramètres enregistrés, mais le démarrage automatique "
+                f"n'a pas pu être {'activé' if autostart else 'désactivé'} :\n{autostart_err}",
+            )
 
         # Notifier le planificateur d'une éventuelle mise à jour
         self.settings_saved.emit()
@@ -471,9 +478,14 @@ class SettingsPage(QWidget):
         if hasattr(win, "apply_theme"):
             win.apply_theme()
 
-    def _apply_autostart(self, enable: bool) -> None:
+    def _apply_autostart(self, enable: bool) -> tuple[bool, str]:
+        """Écrit ou supprime la clé de démarrage automatique dans le registre.
+
+        Returns:
+            (succès, message_erreur) — succès est True même si la clé n'existait pas.
+        """
         if sys.platform != "win32":
-            return
+            return True, ""
         import winreg
 
         key_path    = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -485,19 +497,21 @@ class SettingsPage(QWidget):
                 winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE
             ) as key:
                 if enable:
-                    import sys as _sys
-                    if getattr(_sys, "frozen", False):
-                        cmd = f'"{_sys.executable}" --autostart'
+                    if getattr(sys, "frozen", False):
+                        cmd = f'"{sys.executable}" --autostart'
                     else:
-                        cmd = f'"{_sys.executable}" -X utf8 "{main_script}" --autostart'
+                        cmd = f'"{sys.executable}" -X utf8 "{main_script}" --autostart'
                     winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, cmd)
                 else:
                     try:
                         winreg.DeleteValue(key, app_name)
                     except FileNotFoundError:
                         pass
-        except Exception:
-            pass
+            return True, ""
+        except PermissionError:
+            return False, "Permission refusée (registre Windows)."
+        except Exception as exc:
+            return False, str(exc)
 
     def _toggle_ctx(self) -> None:
         from core.registry_manager import register, unregister, is_registered

@@ -111,6 +111,16 @@ class ShutdownProgressDialog(QDialog):
         short = filename[-70:] if len(filename) > 70 else filename
         self._file_label.setText(short)
 
+    def on_error(self, message: str) -> None:
+        """Appelé si le BackupWorker émet une erreur critique."""
+        self._disk_label.setText(f"Erreur : {message}")
+
+    def on_low_disk(self, disk: str, pct_free: int) -> None:
+        """Appelé si l'espace disque cible est faible (< 10 %)."""
+        self._disk_label.setText(
+            f"Attention : espace faible sur la cible ({pct_free}% libre)"
+        )
+
     def on_finished(self, copied: int, errors: int) -> None:
         """Appelé quand la sauvegarde est terminée avec succès."""
         self._progress.setRange(0, 1)
