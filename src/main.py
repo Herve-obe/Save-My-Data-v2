@@ -423,30 +423,36 @@ def _open_orphan_review(data_dir: Path) -> None:
 
 
 def _create_icon():
-    """Crée une icône simple pour le systray (sera remplacée en M5)."""
+    """Charge l'icône depuis assets/icon.ico (embarqué dans le bundle ou dossier projet)."""
     from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
     from PySide6.QtCore import Qt
 
+    # En mode frozen : sys._MEIPASS/assets/icon.ico
+    # En développement : assets/icon.ico à la racine du projet
+    ico_path = None
+    if getattr(sys, "frozen", False):
+        ico_path = Path(sys._MEIPASS) / "assets" / "icon.ico"
+    else:
+        ico_path = Path(__file__).parent.parent / "assets" / "icon.ico"
+
+    if ico_path and ico_path.exists():
+        return QIcon(str(ico_path))
+
+    # Fallback dessiné si le fichier est absent
     size = 32
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
-
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-    # Cercle bleu
     painter.setBrush(QColor("#1565C0"))
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(1, 1, size - 2, size - 2)
-
-    # Lettre "S"
+    painter.drawRoundedRect(1, 1, size - 2, size - 2, 5, 5)
     painter.setPen(QColor("white"))
     font = QFont()
     font.setPixelSize(18)
     font.setBold(True)
     painter.setFont(font)
     painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "S")
-
     painter.end()
     return QIcon(pixmap)
 

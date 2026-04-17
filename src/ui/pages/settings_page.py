@@ -7,6 +7,7 @@ Sections :
   - Comportement à la fermeture de la fenêtre
   - Menu contextuel Windows (clic droit Explorateur)
   - Destination de restauration par défaut
+  - Filtres de sauvegarde (extensions, dossiers, taille max)
   - Thème (sombre / clair / du bureau)
 """
 
@@ -16,9 +17,10 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QRadioButton, QButtonGroup, QTimeEdit, QComboBox,
-    QGroupBox, QScrollArea, QMessageBox,
+    QGroupBox, QScrollArea, QMessageBox, QListWidget, QLineEdit,
+    QSpinBox,
 )
-from PySide6.QtCore import Qt, QTime, Signal
+from PySide6.QtCore import QTime, Signal
 from PySide6.QtGui import QFont
 
 import config
@@ -60,6 +62,7 @@ class SettingsPage(QWidget):
         layout.addWidget(self._build_close_group())
         layout.addWidget(self._build_ctx_group())
         layout.addWidget(self._build_restore_group())
+        layout.addWidget(self._build_filters_group())
         layout.addWidget(self._build_theme_group())
 
         # Bouton Enregistrer
@@ -200,6 +203,85 @@ class SettingsPage(QWidget):
 
         return group
 
+    def _build_filters_group(self) -> QGroupBox:
+        group = QGroupBox("Filtres de sauvegarde")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(14)
+
+        # ── Extensions exclues ────────────────────────────────────────────────
+        lbl_ext = QLabel("Extensions exclues :")
+        layout.addWidget(lbl_ext)
+
+        ext_row = QHBoxLayout()
+        ext_row.setSpacing(10)
+
+        self._ext_list = QListWidget()
+        self._ext_list.setFixedHeight(88)
+        ext_row.addWidget(self._ext_list, stretch=1)
+
+        ext_ctrl = QVBoxLayout()
+        ext_ctrl.setSpacing(4)
+        self._ext_input = QLineEdit()
+        self._ext_input.setPlaceholderText(".tmp")
+        self._ext_input.setFixedWidth(110)
+        self._ext_input.returnPressed.connect(self._add_extension)
+        ext_ctrl.addWidget(self._ext_input)
+        btn_add_ext = QPushButton("Ajouter")
+        btn_add_ext.setFixedWidth(110)
+        btn_add_ext.clicked.connect(self._add_extension)
+        ext_ctrl.addWidget(btn_add_ext)
+        btn_del_ext = QPushButton("Supprimer")
+        btn_del_ext.setFixedWidth(110)
+        btn_del_ext.clicked.connect(self._del_extension)
+        ext_ctrl.addWidget(btn_del_ext)
+        ext_ctrl.addStretch()
+        ext_row.addLayout(ext_ctrl)
+        layout.addLayout(ext_row)
+
+        # ── Dossiers exclus ───────────────────────────────────────────────────
+        lbl_folder = QLabel("Dossiers exclus :")
+        layout.addWidget(lbl_folder)
+
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(10)
+
+        self._folder_list = QListWidget()
+        self._folder_list.setFixedHeight(88)
+        folder_row.addWidget(self._folder_list, stretch=1)
+
+        folder_ctrl = QVBoxLayout()
+        folder_ctrl.setSpacing(4)
+        self._folder_input = QLineEdit()
+        self._folder_input.setPlaceholderText("node_modules")
+        self._folder_input.setFixedWidth(110)
+        self._folder_input.returnPressed.connect(self._add_folder)
+        folder_ctrl.addWidget(self._folder_input)
+        btn_add_folder = QPushButton("Ajouter")
+        btn_add_folder.setFixedWidth(110)
+        btn_add_folder.clicked.connect(self._add_folder)
+        folder_ctrl.addWidget(btn_add_folder)
+        btn_del_folder = QPushButton("Supprimer")
+        btn_del_folder.setFixedWidth(110)
+        btn_del_folder.clicked.connect(self._del_folder)
+        folder_ctrl.addWidget(btn_del_folder)
+        folder_ctrl.addStretch()
+        folder_row.addLayout(folder_ctrl)
+        layout.addLayout(folder_row)
+
+        # ── Taille maximale par fichier ───────────────────────────────────────
+        size_row = QHBoxLayout()
+        size_row.addWidget(QLabel("Taille maximale par fichier :"))
+        self._max_size_spin = QSpinBox()
+        self._max_size_spin.setRange(0, 100_000)
+        self._max_size_spin.setSuffix(" Mo")
+        self._max_size_spin.setSpecialValueText("Sans limite")
+        self._max_size_spin.setFixedWidth(150)
+        size_row.addWidget(self._max_size_spin)
+        size_row.addStretch()
+        layout.addLayout(size_row)
+
+        return group
+
     def _build_theme_group(self) -> QGroupBox:
         group = QGroupBox("Apparence")
         layout = QVBoxLayout(group)
@@ -256,6 +338,17 @@ class SettingsPage(QWidget):
         if idx >= 0:
             self._restore_combo.setCurrentIndex(idx)
 
+        # Filtres
+        filters = cfg.get("filters", {})
+        self._ext_list.clear()
+        for ext in filters.get("excluded_extensions", []):
+            self._ext_list.addItem(ext)
+        self._folder_list.clear()
+        for folder in filters.get("excluded_folders", []):
+            self._folder_list.addItem(folder)
+        max_bytes = filters.get("max_size_bytes", 0)
+        self._max_size_spin.setValue(max_bytes // (1024 * 1024) if max_bytes > 0 else 0)
+
         # Thème
         theme = cfg.get("theme", "dark")
         {
@@ -292,6 +385,38 @@ class SettingsPage(QWidget):
         self._time_sched.setTime(t)
         self._syncing_time = False
 
+    def _add_extension(self) -> None:
+        raw = self._ext_input.text().strip()
+        if not raw:
+            return
+        # Normaliser : ajouter le point si absent, mettre en minuscules
+        ext = raw.lower() if raw.startswith(".") else f".{raw.lower()}"
+        existing = [self._ext_list.item(i).text()
+                    for i in range(self._ext_list.count())]
+        if ext not in existing:
+            self._ext_list.addItem(ext)
+        self._ext_input.clear()
+
+    def _del_extension(self) -> None:
+        row = self._ext_list.currentRow()
+        if row >= 0:
+            self._ext_list.takeItem(row)
+
+    def _add_folder(self) -> None:
+        name = self._folder_input.text().strip()
+        if not name:
+            return
+        existing = [self._folder_list.item(i).text()
+                    for i in range(self._folder_list.count())]
+        if name not in existing:
+            self._folder_list.addItem(name)
+        self._folder_input.clear()
+
+    def _del_folder(self) -> None:
+        row = self._folder_list.currentRow()
+        if row >= 0:
+            self._folder_list.takeItem(row)
+
     # ── Enregistrement ────────────────────────────────────────────────────────
 
     def _save(self) -> None:
@@ -316,11 +441,22 @@ class SettingsPage(QWidget):
         else:
             theme = "system"
 
+        # Filtres
+        extensions = [self._ext_list.item(i).text()
+                      for i in range(self._ext_list.count())]
+        folders    = [self._folder_list.item(i).text()
+                      for i in range(self._folder_list.count())]
+        mb = self._max_size_spin.value()
+        max_bytes  = mb * 1024 * 1024 if mb > 0 else 0
+
         config.set_value("backup.mode", mode)
         config.set_value("backup.scheduled_time", sched_time)
         config.set_value("autostart", autostart)
         config.set_value("ui.close_behavior", close_beh)
         config.set_value("restore.default_destination", restore_dest)
+        config.set_value("filters.excluded_extensions", extensions)
+        config.set_value("filters.excluded_folders", folders)
+        config.set_value("filters.max_size_bytes", max_bytes)
         config.set_value("theme", theme)
 
         self._apply_autostart(autostart)
@@ -349,8 +485,6 @@ class SettingsPage(QWidget):
                 winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE
             ) as key:
                 if enable:
-                    # --autostart : démarre dans le systray sans ouvrir la fenêtre.
-                    # En mode frozen (.exe), on n'a pas besoin de passer le script.
                     import sys as _sys
                     if getattr(_sys, "frozen", False):
                         cmd = f'"{_sys.executable}" --autostart'
@@ -377,7 +511,6 @@ class SettingsPage(QWidget):
 
         if ok:
             self._refresh_ctx_btn()
-            # Mettre à jour le flag dans la config
             config.set_value("restore.context_menu", is_registered())
         else:
             QMessageBox.warning(self, "Save My Data", f"Échec : {msg}")

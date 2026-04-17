@@ -23,6 +23,8 @@ a = Analysis(
     datas=[
         # Template config embarqué → copié dans AppData au premier lancement
         (str(ROOT / "config" / "settings.json"), "config"),
+        # Icône embarquée pour le systray
+        (str(ROOT / "assets" / "icon.ico"), "assets"),
     ],
     hiddenimports=[
         # APScheduler — jobstores / executors chargés dynamiquement
@@ -80,7 +82,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon="assets/icon.ico",   # Décommentez quand l'icône .ico sera prête
+    icon=str(ROOT / "assets" / "icon.ico"),
 )
 
 coll = COLLECT(
