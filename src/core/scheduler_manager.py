@@ -13,6 +13,8 @@ Cycle de vie :
     scheduler.stop()           # appelé sur app.aboutToQuit
 """
 
+import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -54,6 +56,7 @@ class SchedulerManager:
         # Le bridge est créé ici, dans le thread Qt principal
         self._bridge = _Bridge()
         self._bridge.triggered.connect(self._run_scheduled_backup)
+        self._catchup_pending = False   # True si le prochain déclenchement est un rattrapage
 
     # ── Cycle de vie ──────────────────────────────────────────────────────────
 
@@ -69,6 +72,7 @@ class SchedulerManager:
         )
         self._scheduler.start()
         self._update_job()
+        self._schedule_catchup_if_needed()
 
     def reschedule(self) -> None:
         """Relit la config et met à jour le job (appelé après sauvegarde des paramètres)."""
@@ -83,6 +87,70 @@ class SchedulerManager:
                 self._scheduler.shutdown(wait=False)
             except Exception:
                 pass
+
+    # ── Rattrapage au démarrage ───────────────────────────────────────────────
+
+    def _schedule_catchup_if_needed(self) -> None:
+        """
+        Déclenche une sauvegarde de rattrapage si la sauvegarde planifiée du
+        jour a été manquée (ordinateur éteint à l'heure prévue).
+
+        Conditions pour déclencher le rattrapage :
+          1. Mode = 'scheduled' ou 'both'
+          2. L'heure planifiée d'aujourd'hui est déjà passée
+          3. Aucune sauvegarde n'a eu lieu aujourd'hui
+        """
+        if self._scheduler is None or not self._scheduler.running:
+            return
+
+        cfg = config.reload()
+        mode = cfg.get("backup", {}).get("mode", "shutdown")
+        if mode not in ("scheduled", "both"):
+            return
+
+        time_str = cfg.get("backup", {}).get("scheduled_time", "22:00")
+        try:
+            parts  = time_str.split(":")
+            hour   = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+        except (ValueError, IndexError):
+            return
+
+        now = datetime.now()
+        scheduled_today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        # L'heure planifiée n'est pas encore passée aujourd'hui → rien à rattraper
+        if now < scheduled_today:
+            return
+
+        # Une sauvegarde a déjà eu lieu aujourd'hui → pas de rattrapage
+        last = self._last_backup_date()
+        if last is not None and last.date() >= now.date():
+            return
+
+        # Planifier le rattrapage 15 secondes après le démarrage
+        self._catchup_pending = True
+        self._scheduler.add_job(
+            self._bridge.triggered.emit,
+            trigger="date",
+            run_date=now + timedelta(seconds=15),
+            id="catchup_backup",
+            replace_existing=True,
+        )
+
+    def _last_backup_date(self) -> "datetime | None":
+        """Lit la date de la dernière sauvegarde depuis last_backup.json."""
+        p = self._data_dir / "last_backup.json"
+        if not p.exists():
+            return None
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            date_str = data.get("date", "")  # format : "dd/MM/yyyy à HH:mm"
+            if date_str:
+                return datetime.strptime(date_str, "%d/%m/%Y à %H:%M")
+        except Exception:
+            pass
+        return None
 
     # ── Gestion du job ────────────────────────────────────────────────────────
 
@@ -141,11 +209,11 @@ class SchedulerManager:
         target  = Path(target_str)
         sources = [Path(s) for s in source_strs]
 
-        self._notify(
-            "Sauvegarde planifiée en cours…",
-            QSystemTrayIcon.MessageIcon.Information,
-            2000,
-        )
+        is_catchup = self._catchup_pending
+        self._catchup_pending = False
+        msg = ("Sauvegarde de rattrapage en cours… (heure planifiée manquée)"
+               if is_catchup else "Sauvegarde planifiée en cours…")
+        self._notify(msg, QSystemTrayIcon.MessageIcon.Information, 2000)
 
         worker = BackupWorker(sources, target, filters, self._data_dir)
         worker.finished.connect(self._on_backup_done)

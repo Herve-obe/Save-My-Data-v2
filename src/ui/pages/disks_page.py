@@ -4,8 +4,7 @@ disks_page.py — Configuration des disques source et cible.
 Chaque disque est affiché sur une seule ligne :
   [radio/check  C:\\]  [Nom du volume]  [██████░░░░  536 Go libres / 894 Go - 40% utilise]
 
-La barre de progression affiche les capacités directement en texte superposé,
-comme dans la fenêtre des disques Windows.
+Les sources peuvent être des disques entiers OU des dossiers personnalisés.
 """
 
 import sys
@@ -14,7 +13,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QCheckBox, QButtonGroup, QRadioButton, QScrollArea,
-    QMessageBox, QGroupBox, QSizePolicy, QApplication,
+    QMessageBox, QGroupBox, QSizePolicy, QApplication, QFileDialog,
 )
 from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QFont, QPainter, QColor, QPalette
@@ -216,6 +215,7 @@ class DisksPage(QWidget):
         self._source_checks: dict[str, QCheckBox] = {}
         self._target_radios: dict[str, QRadioButton] = {}
         self._target_group = QButtonGroup(self)
+        self._custom_sources: list[str] = []   # dossiers source personnalisés
         self._build_ui()
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -239,8 +239,9 @@ class DisksPage(QWidget):
         layout.addWidget(title)
 
         desc = QLabel(
-            "Sélectionnez le disque de sauvegarde (cible) et les disques "
-            "à sauvegarder (sources). Le disque cible ne peut pas être une source."
+            "Sélectionnez le disque de sauvegarde (cible) et les sources à "
+            "sauvegarder. Les sources peuvent être des disques entiers ou des "
+            "dossiers spécifiques."
         )
         desc.setWordWrap(True)
         layout.addWidget(desc)
@@ -255,12 +256,44 @@ class DisksPage(QWidget):
         layout.addWidget(self._target_group_box)
 
         # ── Disques sources ───────────────────────────────────────────────────
-        self._source_group_box = QGroupBox("Disques à sauvegarder (sources)")
+        self._source_group_box = QGroupBox("Sources à sauvegarder")
         sgl = QVBoxLayout(self._source_group_box)
         sgl.setSpacing(6)
+
+        # Sous-section : disques détectés
+        lbl_disks = QLabel("Disques détectés :")
+        lbl_disks.setStyleSheet("font-weight: bold; padding-top: 4px;")
+        sgl.addWidget(lbl_disks)
+
         self._source_container = QVBoxLayout()
         self._source_container.setSpacing(4)
         sgl.addLayout(self._source_container)
+
+        # Sous-section : dossiers personnalisés
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sgl.addWidget(sep)
+
+        custom_header = QHBoxLayout()
+        lbl_custom = QLabel("Dossiers spécifiques :")
+        lbl_custom.setStyleSheet("font-weight: bold;")
+        custom_header.addWidget(lbl_custom)
+        custom_header.addStretch()
+        btn_add = QPushButton("+ Ajouter un dossier…")
+        btn_add.setFixedHeight(28)
+        btn_add.clicked.connect(self._add_custom_source)
+        custom_header.addWidget(btn_add)
+        sgl.addLayout(custom_header)
+
+        self._custom_container = QVBoxLayout()
+        self._custom_container.setSpacing(4)
+        sgl.addLayout(self._custom_container)
+
+        self._lbl_no_custom = QLabel("Aucun dossier spécifique ajouté.")
+        self._lbl_no_custom.setStyleSheet("color: #888; font-style: italic; padding: 4px 0;")
+        sgl.addWidget(self._lbl_no_custom)
+
         layout.addWidget(self._source_group_box)
 
         # ── Boutons ───────────────────────────────────────────────────────────
@@ -295,7 +328,7 @@ class DisksPage(QWidget):
     def refresh(self) -> None:
         cfg = config.load()
         saved_target  = cfg.get("backup", {}).get("target_disk", "").rstrip("/\\")
-        saved_sources = {s.rstrip("/\\") for s in cfg.get("backup", {}).get("source_disks", [])}
+        all_sources   = cfg.get("backup", {}).get("source_disks", [])
 
         _clear_layout(self._target_container)
         _clear_layout(self._source_container)
@@ -306,37 +339,125 @@ class DisksPage(QWidget):
             self._target_group.removeButton(btn)
 
         drives = self._detect_drives()
+        detected_mps = {info["mp"].rstrip("/\\") for info in drives}
+
+        # Séparer sources disques et sources dossiers personnalisés
+        disk_sources   = {s.rstrip("/\\") for s in all_sources if s.rstrip("/\\") in detected_mps}
+        self._custom_sources = [s for s in all_sources if s.rstrip("/\\") not in detected_mps]
 
         if not drives:
             self._target_container.addWidget(QLabel("Aucun disque détecté."))
             self._source_container.addWidget(QLabel("Aucun disque détecté."))
+        else:
+            for info in drives:
+                mp      = info["mp"]
+                mp_norm = mp.rstrip("/\\")
+                is_target_checked = (mp_norm == saved_target)
+                is_source_checked = (mp_norm in disk_sources)
+
+                if "total" in info:
+                    target_card = DiskCard(mp, True,
+                                           info["total"], info["used"], info["free"],
+                                           checked=is_target_checked)
+                    source_card = DiskCard(mp, False,
+                                           info["total"], info["used"], info["free"],
+                                           checked=is_source_checked)
+                else:
+                    target_card = DiskCardError(mp, True, checked=is_target_checked)
+                    source_card = DiskCardError(mp, False, checked=is_source_checked)
+
+                self._target_radios[mp] = target_card.selector
+                self._target_group.addButton(target_card.selector)
+                self._target_container.addWidget(target_card)
+
+                self._source_checks[mp] = source_card.selector
+                self._source_container.addWidget(source_card)
+
+        self._render_custom_sources()
+
+    def _render_custom_sources(self) -> None:
+        """Reconstruit l'affichage des dossiers personnalisés."""
+        _clear_layout(self._custom_container)
+        if self._custom_sources:
+            self._lbl_no_custom.setVisible(False)
+            for path_str in self._custom_sources:
+                self._custom_container.addWidget(
+                    self._make_custom_row(path_str)
+                )
+        else:
+            self._lbl_no_custom.setVisible(True)
+
+    def _make_custom_row(self, path_str: str) -> QFrame:
+        """Crée une ligne affichant un dossier personnalisé avec bouton supprimer."""
+        row = QFrame()
+        row.setFrameShape(QFrame.Shape.StyledPanel)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(14, 6, 14, 6)
+        layout.setSpacing(10)
+
+        lbl = QLabel(path_str)
+        lbl.setToolTip(path_str)
+        layout.addWidget(lbl, stretch=1)
+
+        # Infos de taille si dossier accessible
+        p = Path(path_str)
+        if p.exists():
+            try:
+                import psutil
+                usage = psutil.disk_usage(str(p))
+                free_gb  = usage.free  / 1024**3
+                total_gb = usage.total / 1024**3
+                lbl_size = QLabel(f"{free_gb:.1f} Go libres / {total_gb:.0f} Go")
+                lbl_size.setStyleSheet("color: #888; font-size: 11px;")
+                layout.addWidget(lbl_size)
+            except Exception:
+                pass
+        else:
+            lbl_err = QLabel("(inaccessible)")
+            lbl_err.setStyleSheet("color: #f59e0b; font-size: 11px;")
+            layout.addWidget(lbl_err)
+
+        btn_del = QPushButton("Retirer")
+        btn_del.setFixedSize(60, 24)
+        btn_del.setStyleSheet("color: #c0392b;")
+        btn_del.clicked.connect(lambda: self._remove_custom_source(path_str))
+        layout.addWidget(btn_del)
+
+        return row
+
+    # ── Gestion des sources personnalisées ────────────────────────────────────
+
+    def _add_custom_source(self) -> None:
+        """Ouvre un sélecteur de dossier et l'ajoute aux sources personnalisées."""
+        folder = QFileDialog.getExistingDirectory(
+            self, "Sélectionner un dossier source"
+        )
+        if not folder:
+            return
+        folder = str(Path(folder))  # normalise les séparateurs
+
+        # Déduplication
+        if folder in self._custom_sources:
             return
 
-        for info in drives:
-            mp      = info["mp"]
-            mp_norm = mp.rstrip("/\\")
-            is_target_checked = (mp_norm == saved_target)
-            is_source_checked = (mp_norm in saved_sources)
+        # Vérifier que ce n'est pas un disque déjà sélectionnable comme source
+        drives = self._detect_drives()
+        detected_mps = {info["mp"].rstrip("/\\") for info in drives}
+        if folder.rstrip("/\\") in detected_mps:
+            QMessageBox.information(
+                self, "Save My Data",
+                "Ce chemin correspond à un disque entier.\n"
+                "Cochez-le directement dans la section « Disques détectés »."
+            )
+            return
 
-            if "total" in info:
-                # Carte cible
-                target_card = DiskCard(mp, True,
-                                       info["total"], info["used"], info["free"],
-                                       checked=is_target_checked)
-                # Carte source
-                source_card = DiskCard(mp, False,
-                                       info["total"], info["used"], info["free"],
-                                       checked=is_source_checked)
-            else:
-                target_card = DiskCardError(mp, True, checked=is_target_checked)
-                source_card = DiskCardError(mp, False, checked=is_source_checked)
+        self._custom_sources.append(folder)
+        self._render_custom_sources()
 
-            self._target_radios[mp] = target_card.selector
-            self._target_group.addButton(target_card.selector)
-            self._target_container.addWidget(target_card)
-
-            self._source_checks[mp] = source_card.selector
-            self._source_container.addWidget(source_card)
+    def _remove_custom_source(self, path_str: str) -> None:
+        if path_str in self._custom_sources:
+            self._custom_sources.remove(path_str)
+        self._render_custom_sources()
 
     def _detect_drives(self) -> list[dict]:
         try:
@@ -370,24 +491,44 @@ class DisksPage(QWidget):
         target = next(
             (mp for mp, r in self._target_radios.items() if r.isChecked()), ""
         )
-        sources = [mp for mp, chk in self._source_checks.items() if chk.isChecked()]
+        disk_sources   = [mp for mp, chk in self._source_checks.items() if chk.isChecked()]
+        all_sources    = disk_sources + self._custom_sources
 
         if not target:
             QMessageBox.warning(self, "Save My Data",
                                 "Veuillez sélectionner un disque cible.")
             return
-        if not sources:
+        if not all_sources:
             QMessageBox.warning(self, "Save My Data",
-                                "Veuillez sélectionner au moins un disque source.")
+                                "Veuillez sélectionner au moins une source.")
             return
-        if target.rstrip("/\\") in {s.rstrip("/\\") for s in sources}:
+
+        target_norm = target.rstrip("/\\")
+        if target_norm in {s.rstrip("/\\") for s in disk_sources}:
             QMessageBox.warning(
                 self, "Save My Data",
                 "Le disque cible ne peut pas être aussi un disque source."
             )
             return
 
+        # Vérifier qu'aucun dossier personnalisé n'est sur le disque cible
+        for s in self._custom_sources:
+            try:
+                if Path(s).drive.rstrip(":").upper() == target_norm.rstrip(":").upper():
+                    reply = QMessageBox.question(
+                        self, "Save My Data",
+                        f"Le dossier source « {s} » se trouve sur le disque cible.\n"
+                        "Sauvegarder sur le même disque réduit la protection.\n\n"
+                        "Continuer quand même ?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+                    break
+            except Exception:
+                pass
+
         config.set_value("backup.target_disk", target)
-        config.set_value("backup.source_disks", sources)
+        config.set_value("backup.source_disks", all_sources)
         QMessageBox.information(self, "Save My Data",
                                 "Configuration des disques enregistrée.")

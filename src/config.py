@@ -155,7 +155,7 @@ def _ensure_config_exists() -> None:
 
 def _defaults() -> dict:
     return {
-        "version": "1.0.0",
+        "version": "1.2.0",
         "autostart": True,
         "theme": "dark",
         "language": "fr",

@@ -16,7 +16,7 @@ Logiciel de sauvegarde automatique et incrémentale pour Windows. Tourne discrè
 
 ## Installation
 
-1. Téléchargez `SaveMyData-v1.0.0-Windows.zip` depuis la [page Releases](https://github.com/Herve-obe/Save-My-Data-v2/releases)
+1. Téléchargez `SaveMyData-v1.2.0-Windows.zip` depuis la [page Releases](https://github.com/Herve-obe/Save-My-Data-v2/releases)
 2. Extrayez le dossier à l'emplacement de votre choix
 3. Lancez `SaveMyData.exe`
 4. Allez dans **Mes disques** pour choisir votre disque de sauvegarde et vos sources
